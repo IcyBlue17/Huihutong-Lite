@@ -1,7 +1,9 @@
 import SwiftUI
+import SafariServices
 @available(iOS 17.0, *)
 struct AboutView: View {
     @Environment(\.colorScheme) var colorScheme
+    @State private var showingTutorial = false
     var body: some View {
         NavigationView {
             ScrollView {
@@ -41,6 +43,32 @@ struct AboutView: View {
                         }
                     }
                     
+                    // 添加使用教程按钮
+                    Button(action: {
+                        showingTutorial = true
+                    }) {
+                        HStack {
+                            Image(systemName: "book.fill")
+                                .foregroundColor(.white)
+                            Text("查看使用教程")
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                        }
+                        .font(.system(size: 18))
+                        .padding(.horizontal, 30)
+                        .padding(.vertical, 15)
+                        .background(
+                            LinearGradient(
+                                gradient: Gradient(colors: [Color.green, Color.green.opacity(0.8)]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .cornerRadius(12)
+                        .shadow(color: .green.opacity(0.3), radius: 4, x: 0, y: 2)
+                    }
+                    .padding(.top, 10)
+                    
                     Spacer(minLength: 50)
                 }
                 .padding(.horizontal, 20)
@@ -48,6 +76,9 @@ struct AboutView: View {
             .background((colorScheme == .dark ? Color.black : Color(UIColor.systemGroupedBackground)).ignoresSafeArea())
             .navigationTitle("关于")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showingTutorial) {
+                SafariView(url: URL(string: "https://github.com/PairZhu/HuiHuTong/blob/main/README.md")!)
+            }
         }
     }
 }
@@ -146,6 +177,18 @@ struct TechRow: View {
                 .fontWeight(.medium)
                 .foregroundColor(colorScheme == .dark ? .white : .primary)
         }
+    }
+}
+
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+    
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        return SFSafariViewController(url: url)
+    }
+    
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {
+        // 无需更新
     }
 }
 
