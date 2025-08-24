@@ -64,7 +64,23 @@ struct ContentView: View {
                                         .foregroundColor(colorScheme == .dark ? .gray : .secondary)
                                 }
                             )
+                            .onTapGesture {
+                                viewModel.refreshQRCode()
+                            }
                     }
+                    VStack(spacing: 8) {
+                        InfoRow(icon: "person.fill", title: "姓名", value: viewModel.userName, colorScheme: colorScheme)
+                        InfoRow(icon: "building.fill", title: "单位", value: viewModel.companyName, colorScheme: colorScheme)
+                        InfoRow(icon: "building.2.fill", title: "宿舍", value: viewModel.apartment.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ,", with: ""), colorScheme: colorScheme)
+                        InfoRow(icon: "calendar.badge.clock", title: "生效", value: viewModel.passTime, colorScheme: colorScheme)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+                    )
+                    .padding(.horizontal, 20)
                     
                     Spacer()
                     
@@ -156,6 +172,32 @@ struct ContentView: View {
         } message: {
             Text(viewModel.alertMessage)
         }
+    }
+}
+
+struct InfoRow: View {
+    let icon: String
+    let title: String
+    let value: String
+    let colorScheme: ColorScheme
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(.blue)
+                .frame(width: 20)
+            
+            Text(title)
+                .foregroundColor(colorScheme == .dark ? .gray : .secondary)
+                .frame(width: 50, alignment: .leading)
+            
+            Spacer()
+            
+            Text(value)
+                .foregroundColor(colorScheme == .dark ? .white : .primary)
+                .fontWeight(.medium)
+        }
+        .font(.system(size: 14))
     }
 }
 

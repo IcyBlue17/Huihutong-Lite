@@ -1,7 +1,5 @@
-
 import UIKit
 import CoreImage.CIFilterBuiltins
-
 class QRCodeGenerator {
     static func generateQRCode(from string: String) -> UIImage? {
         let context = CIContext()
@@ -15,7 +13,7 @@ class QRCodeGenerator {
                 return UIImage(cgImage: cgimg)
             }
         }
-        
+    
         return nil
     }
 }

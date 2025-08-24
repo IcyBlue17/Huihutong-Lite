@@ -187,7 +187,6 @@ struct SafariView: UIViewControllerRepresentable {
     }
     
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {
-        // 无需更新
     }
 }
 

@@ -1,7 +1,5 @@
-
 import SwiftUI
 import SwiftData
-
 @available(iOS 17.0, *)
 @MainActor
 class MainViewModel: ObservableObject {
@@ -12,22 +10,26 @@ class MainViewModel: ObservableObject {
     @Published var alertMessage = ""
     @Published var scaleFactor: Double = 1.0
     @Published var showAbout = false
+    @Published var userName = "-"
+    @Published var apartment = "-"
+    @Published var passTime = "-"
+    @Published var companyName = "-"
     private let apiService = APIService()
     private var refreshTimer: Timer?
     private let refreshInterval: TimeInterval = 15.0
     private var currentQRData: String?
-    
+
     var settings: AppSettings?
     var modelContext: ModelContext?
-    
+
     func setModelContext(_ context: ModelContext) {
         self.modelContext = context
         loadSettings()
     }
-    
+
     private func loadSettings() {
         guard let context = modelContext else { return }
-        
+    
         let descriptor = FetchDescriptor<AppSettings>()
         if let existingSettings = try? context.fetch(descriptor).first {
             settings = existingSettings
@@ -85,14 +87,32 @@ class MainViewModel: ObservableObject {
             }
             
             let qrData = try await apiService.getQRCodeData(satoken: settings.satoken)
+            async let userInfoResult: APIService.UserInfoData? = {
+                do {
+                    return try await apiService.getUserInfo(satoken: settings.satoken)
+                } catch {
+                    print("获取用户信息失败: \(error)")
+                    return nil
+                }
+            }()
             
             currentQRData = qrData
             
             if let image = QRCodeGenerator.generateQRCode(from: qrData) {
                 qrCodeImage = image
                 statusMessage = "二维码更新成功！"
+                if let userInfo = await userInfoResult {
+                    userName = userInfo.name
+                    apartment = userInfo.apartment
+                    passTime = userInfo.passTime
+                    companyName = userInfo.companyName
+                }
+                
                 startTimer()
             } else {
+                statusMessage = "获取失败，点击二维码重试"
+                alertMessage = "二维码生成失败，请重试"
+                showAlert = true
                 throw NSError(domain: "QRCodeError", code: -1, userInfo: [NSLocalizedDescriptionKey: "生成二维码失败"])
             }
             
@@ -104,20 +124,40 @@ class MainViewModel: ObservableObject {
                     saveSettings()
                     
                     let qrData = try await apiService.getQRCodeData(satoken: settings.satoken)
+                    async let userInfoResult: APIService.UserInfoData? = {
+                        do {
+                            return try await apiService.getUserInfo(satoken: settings.satoken)
+                        } catch {
+                            print("获取用户信息失败: \(error)")
+                            return nil
+                        }
+                    }()
+                    
                     if let image = QRCodeGenerator.generateQRCode(from: qrData) {
                         qrCodeImage = image
                         statusMessage = "二维码更新成功！"
+                        if let userInfo = await userInfoResult {
+                            userName = userInfo.name
+                            apartment = userInfo.apartment
+                            passTime = userInfo.passTime
+                            companyName = userInfo.companyName
+                        }
+                        
                         startTimer()
+                    } else {
+                        statusMessage = "获取失败，点击二维码重试"
+                        alertMessage = "二维码生成失败，请重试"
+                        showAlert = true
                     }
                 } catch {
-                    statusMessage = "更新失败：\(error.localizedDescription)"
-                    alertMessage = "OpenID 可能无效，请重新设置"
+                    statusMessage = "获取失败，点击二维码重试"
+                    alertMessage = "二维码获取失败：\(error.localizedDescription)\n\nOpenID 可能无效，请重新设置"
                     showAlert = true
-                    scheduleRetry()
                 }
             } else {
-                statusMessage = "返回数据异常，可能是OpenID输入有误，正在重试..."
-                scheduleRetry()
+                statusMessage = "获取失败，点击二维码重试"
+                alertMessage = "网络异常或数据错误：\(error.localizedDescription)"
+                showAlert = true
             }
         }
         
@@ -125,8 +165,9 @@ class MainViewModel: ObservableObject {
     }
     
     private func startTimer() {
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: false) { _ in
-            Task {
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
                 await self.generateQRCode()
             }
         }
@@ -135,14 +176,6 @@ class MainViewModel: ObservableObject {
     private func stopTimer() {
         refreshTimer?.invalidate()
         refreshTimer = nil
-    }
-    
-    private func scheduleRetry() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            Task {
-                await self.generateQRCode()
-            }
-        }
     }
     
     func showInputAlert() {
@@ -163,8 +196,7 @@ class MainViewModel: ObservableObject {
     }
     
     deinit {
-        Task { @MainActor in
-            stopTimer()
-        }
+        refreshTimer?.invalidate()
+        refreshTimer = nil
     }
 }
