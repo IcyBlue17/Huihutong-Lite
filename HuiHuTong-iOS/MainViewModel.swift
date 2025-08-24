@@ -16,26 +16,9 @@ class MainViewModel: ObservableObject {
     private var refreshTimer: Timer?
     private let refreshInterval: TimeInterval = 15.0
     private var currentQRData: String?
-    private var originalBrightness: CGFloat = 0.5
     
     var settings: AppSettings?
     var modelContext: ModelContext?
-    
-    init() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidEnterBackground),
-            name: UIApplication.didEnterBackgroundNotification,
-            object: nil
-        )
-        
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appWillEnterForeground),
-            name: UIApplication.willEnterForegroundNotification,
-            object: nil
-        )
-    }
     
     func setModelContext(_ context: ModelContext) {
         self.modelContext = context
@@ -171,37 +154,15 @@ class MainViewModel: ObservableObject {
         showAbout = true
     }
     
-    func setMaxBrightness() {
-        originalBrightness = UIScreen.main.brightness
-        UIScreen.main.brightness = 1.0
-    }
-    
-    func restoreOriginalBrightness() {
-        UIScreen.main.brightness = originalBrightness
-    }
-    
     func onAppear() {
-        originalBrightness = UIScreen.main.brightness
-        setMaxBrightness()
         refreshQRCode()
     }
     
     func onDisappear() {
-        restoreOriginalBrightness()
         stopTimer()
     }
     
-    @objc private func appDidEnterBackground() {
-        restoreOriginalBrightness()
-    }
-    
-    @objc private func appWillEnterForeground() {
-        originalBrightness = UIScreen.main.brightness
-        setMaxBrightness()
-    }
-    
     deinit {
-        NotificationCenter.default.removeObserver(self)
         Task { @MainActor in
             stopTimer()
         }
