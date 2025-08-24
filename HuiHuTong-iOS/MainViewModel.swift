@@ -14,12 +14,28 @@ class MainViewModel: ObservableObject {
     @Published var showAbout = false
     private let apiService = APIService()
     private var refreshTimer: Timer?
-    private let refreshInterval: TimeInterval = 15.0 // 多久刷新一次
+    private let refreshInterval: TimeInterval = 15.0
     private var currentQRData: String?
     private var originalBrightness: CGFloat = 0.5
     
     var settings: AppSettings?
     var modelContext: ModelContext?
+    
+    init() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+    }
     
     func setModelContext(_ context: ModelContext) {
         self.modelContext = context
@@ -63,7 +79,6 @@ class MainViewModel: ObservableObject {
         
         guard let settings = settings, !settings.openId.isEmpty else {
             statusMessage = "请先设置 OpenID"
-            onQRCodeHidden()
             showInputAlert()
             return
         }
@@ -93,10 +108,8 @@ class MainViewModel: ObservableObject {
             if let image = QRCodeGenerator.generateQRCode(from: qrData) {
                 qrCodeImage = image
                 statusMessage = "二维码更新成功！"
-                onQRCodeGenerated()
                 startTimer()
             } else {
-                onQRCodeHidden()
                 throw NSError(domain: "QRCodeError", code: -1, userInfo: [NSLocalizedDescriptionKey: "生成二维码失败"])
             }
             
@@ -111,19 +124,16 @@ class MainViewModel: ObservableObject {
                     if let image = QRCodeGenerator.generateQRCode(from: qrData) {
                         qrCodeImage = image
                         statusMessage = "二维码更新成功！"
-                        onQRCodeGenerated()
                         startTimer()
                     }
                 } catch {
                     statusMessage = "更新失败：\(error.localizedDescription)"
                     alertMessage = "OpenID 可能无效，请重新设置"
                     showAlert = true
-                    onQRCodeHidden()
                     scheduleRetry()
                 }
             } else {
                 statusMessage = "返回数据异常，可能是OpenID输入有误，正在重试..."
-                onQRCodeHidden()
                 scheduleRetry()
             }
         }
@@ -172,6 +182,7 @@ class MainViewModel: ObservableObject {
     
     func onAppear() {
         originalBrightness = UIScreen.main.brightness
+        setMaxBrightness()
         refreshQRCode()
     }
     
@@ -180,17 +191,17 @@ class MainViewModel: ObservableObject {
         stopTimer()
     }
     
-    // 当二维码生成成功时调用
-    func onQRCodeGenerated() {
-        setMaxBrightness()
-    }
-    
-    // 当二维码消失或生成失败时调用
-    func onQRCodeHidden() {
+    @objc private func appDidEnterBackground() {
         restoreOriginalBrightness()
     }
     
+    @objc private func appWillEnterForeground() {
+        originalBrightness = UIScreen.main.brightness
+        setMaxBrightness()
+    }
+    
     deinit {
+        NotificationCenter.default.removeObserver(self)
         Task { @MainActor in
             stopTimer()
         }

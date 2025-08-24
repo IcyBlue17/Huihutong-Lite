@@ -43,7 +43,6 @@ struct AboutView: View {
                         }
                     }
                     
-                    // 添加使用教程按钮
                     Button(action: {
                         showingTutorial = true
                     }) {
