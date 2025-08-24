@@ -1,0 +1,63 @@
+name: 应用编译
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  build:
+    name: 编译IPA
+    runs-on: macos-15
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: 设置Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+    - name: Cache DerivedData
+      uses: actions/cache@v3
+      with:
+        path: ~/Library/Developer/Xcode/DerivedData
+        key: ${{ runner.os }}-derived-data-${{ hashFiles('**/*.xcodeproj/project.pbxproj') }}
+        restore-keys: |
+          ${{ runner.os }}-derived-data-
+    - name: 不签名
+      run: |
+        sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/g' HuiHuTong-iOS.xcodeproj/project.pbxproj
+        sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' HuiHuTong-iOS.xcodeproj/project.pbxproj
+        sed -i '' 's/CODE_SIGN_IDENTITY = [^;]*;/CODE_SIGN_IDENTITY = "";/g' HuiHuTong-iOS.xcodeproj/project.pbxproj
+        sed -i '' '/PROVISIONING_PROFILE_SPECIFIER/d' HuiHuTong-iOS.xcodeproj/project.pbxproj
+    - name: 编译Xarchive
+      run: |
+        xcodebuild -project HuiHuTong-iOS.xcodeproj \
+                   -scheme HuiHuTong-iOS \
+                   -configuration Release \
+                   -destination generic/platform=iOS \
+                   -archivePath $RUNNER_TEMP/HuiHuTong-iOS.xcarchive \
+                   CODE_SIGNING_ALLOWED=NO \
+                   CODE_SIGNING_REQUIRED=NO \
+                   CODE_SIGN_IDENTITY="" \
+                   PROVISIONING_PROFILE="" \
+                   archive
+    - name: 编译IPA
+      run: |
+        mkdir -p $RUNNER_TEMP/Payload
+        cp -R $RUNNER_TEMP/HuiHuTong-iOS.xcarchive/Products/Applications/慧湖通Lite.app $RUNNER_TEMP/Payload/
+        cd $RUNNER_TEMP
+        zip -r HuiHuTong-iOS-unsigned.ipa Payload/
+        mkdir -p build
+        mv HuiHuTong-iOS-unsigned.ipa build/
+    - name: 上传编译的IPA
+      uses: actions/upload-artifact@v4
+      with:
+        name: HuiHuTong-iOS-unsigned-${{ github.run_number }}
+        path: ${{ runner.temp }}/build/HuiHuTong-iOS-unsigned.ipa
+        retention-days: 90
+    - name: 上传编译的Xarchive
+      uses: actions/upload-artifact@v4
+      with:
+        name: HuiHuTong-iOS-archive-${{ github.run_number }}
+        path: ${{ runner.temp }}/HuiHuTong-iOS.xcarchive
+        retention-days: 30
