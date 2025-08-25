@@ -80,12 +80,17 @@ class MainViewModel: ObservableObject {
         statusMessage = "正在更新二维码..."
         
         do {
-            if settings.satoken.isEmpty {
-                let token = try await apiService.getSatoken(openId: settings.openId)
-                settings.satoken = token
-                saveSettings()
-            }
-            
+            let token = try await apiService.getSatoken(openId: settings.openId)
+            settings.satoken = token
+            saveSettings()
+        } catch {
+            statusMessage = "获取失败，点击二维码重试"
+            alertMessage = "获取认证token失败：\(error.localizedDescription)\n\nOpenID 可能无效，请重新设置"
+            showAlert = true
+            isLoading = false
+            return
+        }
+        do {
             let qrData = try await apiService.getQRCodeData(satoken: settings.satoken)
             async let userInfoResult: APIService.UserInfoData? = {
                 do {
@@ -113,52 +118,12 @@ class MainViewModel: ObservableObject {
                 statusMessage = "获取失败，点击二维码重试"
                 alertMessage = "二维码生成失败，请重试"
                 showAlert = true
-                throw NSError(domain: "QRCodeError", code: -1, userInfo: [NSLocalizedDescriptionKey: "生成二维码失败"])
             }
             
         } catch {
-            if error.localizedDescription.contains("token") || error.localizedDescription.contains("401") {
-                do {
-                    let newToken = try await apiService.getSatoken(openId: settings.openId)
-                    settings.satoken = newToken
-                    saveSettings()
-                    
-                    let qrData = try await apiService.getQRCodeData(satoken: settings.satoken)
-                    async let userInfoResult: APIService.UserInfoData? = {
-                        do {
-                            return try await apiService.getUserInfo(satoken: settings.satoken)
-                        } catch {
-                            print("获取用户信息失败: \(error)")
-                            return nil
-                        }
-                    }()
-                    
-                    if let image = QRCodeGenerator.generateQRCode(from: qrData) {
-                        qrCodeImage = image
-                        statusMessage = "二维码更新成功！"
-                        if let userInfo = await userInfoResult {
-                            userName = userInfo.name
-                            apartment = userInfo.apartment
-                            passTime = userInfo.passTime
-                            companyName = userInfo.companyName
-                        }
-                        
-                        startTimer()
-                    } else {
-                        statusMessage = "获取失败，点击二维码重试"
-                        alertMessage = "二维码生成失败，请重试"
-                        showAlert = true
-                    }
-                } catch {
-                    statusMessage = "获取失败，点击二维码重试"
-                    alertMessage = "二维码获取失败：\(error.localizedDescription)\n\nOpenID 可能无效，请重新设置"
-                    showAlert = true
-                }
-            } else {
-                statusMessage = "获取失败，点击二维码重试"
-                alertMessage = "网络异常或数据错误：\(error.localizedDescription)"
-                showAlert = true
-            }
+            statusMessage = "获取失败，点击二维码重试"
+            alertMessage = "网络异常或数据错误：\(error.localizedDescription)"
+            showAlert = true
         }
         
         isLoading = false
