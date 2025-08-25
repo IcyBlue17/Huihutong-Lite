@@ -14,7 +14,15 @@ struct HuiHuTong_iOSApp: App {
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            print("数据库迁移错误: \(error)")
+            let url = modelConfiguration.url
+            try? FileManager.default.removeItem(at: url)
+            
+            do {
+                return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            } catch {
+                fatalError("Could not create ModelContainer after reset: \(error)")
+            }
         }
     }()
 

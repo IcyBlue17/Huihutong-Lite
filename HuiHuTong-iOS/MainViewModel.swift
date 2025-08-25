@@ -1,5 +1,32 @@
 import SwiftUI
 import SwiftData
+
+// 超时错误类型
+struct TimeoutError: Error {
+    let message = "请求超时"
+}
+
+// 超时函数
+func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+    return try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            return try await operation()
+        }
+        
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw TimeoutError()
+        }
+        
+        guard let result = try await group.next() else {
+            throw TimeoutError()
+        }
+        
+        group.cancelAll()
+        return result
+    }
+}
+
 @available(iOS 17.0, *)
 @MainActor
 class MainViewModel: ObservableObject {
@@ -9,14 +36,15 @@ class MainViewModel: ObservableObject {
     @Published var showAlert = false
     @Published var alertMessage = ""
     @Published var scaleFactor: Double = 1.0
-    @Published var showAbout = false
     @Published var userName = "-"
     @Published var apartment = "-"
     @Published var passTime = "-"
     @Published var companyName = "-"
+    @Published var countdownSeconds = 0 // 倒计时秒数
     private let apiService = APIService()
     private var refreshTimer: Timer?
-    private let refreshInterval: TimeInterval = 15.0
+    private var countdownTimer: Timer? // 倒计时定时器
+    private var refreshInterval: TimeInterval = 15.0 // 默认刷新间隔
     private var currentQRData: String?
 
     var settings: AppSettings?
@@ -34,6 +62,7 @@ class MainViewModel: ObservableObject {
         if let existingSettings = try? context.fetch(descriptor).first {
             settings = existingSettings
             scaleFactor = existingSettings.scaleFactor
+            refreshInterval = TimeInterval(existingSettings.qrRefreshInterval)
         } else {
             let newSettings = AppSettings()
             context.insert(newSettings)
@@ -80,9 +109,18 @@ class MainViewModel: ObservableObject {
         statusMessage = "正在更新二维码..."
         
         do {
-            let token = try await apiService.getSatoken(openId: settings.openId)
+            // 设置5秒超时
+            let token = try await withTimeout(seconds: 5) {
+                try await self.apiService.getSatoken(openId: settings.openId)
+            }
             settings.satoken = token
             saveSettings()
+        } catch is TimeoutError {
+            statusMessage = "获取超时，点击二维码重试"
+            alertMessage = "网络请求超时，请检查网络连接后重试"
+            showAlert = true
+            isLoading = false
+            return
         } catch {
             statusMessage = "获取失败，点击二维码重试"
             alertMessage = "获取认证token失败：\(error.localizedDescription)\n\nOpenID 可能无效，请重新设置"
@@ -90,13 +128,19 @@ class MainViewModel: ObservableObject {
             isLoading = false
             return
         }
+        
         do {
-            let qrData = try await apiService.getQRCodeData(satoken: settings.satoken)
+            // 设置5秒超时
+            let qrData = try await withTimeout(seconds: 5) {
+                try await self.apiService.getQRCodeData(satoken: settings.satoken)
+            }
+            
             async let userInfoResult: APIService.UserInfoData? = {
                 do {
-                    return try await apiService.getUserInfo(satoken: settings.satoken)
+                    return try await withTimeout(seconds: 5) {
+                        try await self.apiService.getUserInfo(satoken: settings.satoken)
+                    }
                 } catch {
-                    print("获取用户信息失败: \(error)")
                     return nil
                 }
             }()
@@ -105,7 +149,7 @@ class MainViewModel: ObservableObject {
             
             if let image = QRCodeGenerator.generateQRCode(from: qrData) {
                 qrCodeImage = image
-                statusMessage = "二维码更新成功！"
+                statusMessage = "门禁码已更新，点击可刷新"
                 if let userInfo = await userInfoResult {
                     userName = userInfo.name
                     apartment = userInfo.apartment
@@ -113,23 +157,46 @@ class MainViewModel: ObservableObject {
                     companyName = userInfo.companyName
                 }
                 
+                // 确保isLoading设置为false，这样文字颜色就不会是橙色
+                isLoading = false
                 startTimer()
             } else {
                 statusMessage = "获取失败，点击二维码重试"
                 alertMessage = "二维码生成失败，请重试"
                 showAlert = true
+                isLoading = false
             }
             
+        } catch is TimeoutError {
+            statusMessage = "获取超时，点击二维码重试"
+            alertMessage = "网络请求超时，请检查网络连接后重试"
+            showAlert = true
+            isLoading = false
         } catch {
             statusMessage = "获取失败，点击二维码重试"
             alertMessage = "网络异常或数据错误：\(error.localizedDescription)"
             showAlert = true
+            isLoading = false
         }
-        
-        isLoading = false
     }
     
     private func startTimer() {
+        stopCountdownTimer() // 停止之前的倒计时
+        
+        // 设置倒计时
+        countdownSeconds = Int(refreshInterval)
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                if self.countdownSeconds > 0 {
+                    self.countdownSeconds -= 1
+                } else {
+                    self.stopCountdownTimer()
+                }
+            }
+        }
+        
+        // 设置刷新定时器
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             Task { @MainActor in
@@ -141,6 +208,25 @@ class MainViewModel: ObservableObject {
     private func stopTimer() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        stopCountdownTimer()
+    }
+    
+    private func stopCountdownTimer() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        countdownSeconds = 0
+    }
+    
+    // 更新刷新间隔设置
+    func updateRefreshInterval(_ interval: Int) {
+        refreshInterval = TimeInterval(interval)
+        // 如果正在运行，重新启动定时器
+        if refreshTimer != nil {
+            stopTimer()
+            if qrCodeImage != nil {
+                startTimer()
+            }
+        }
     }
     
     func showInputAlert() {
@@ -148,16 +234,23 @@ class MainViewModel: ObservableObject {
         showAlert = true
     }
     
-    func showAboutInfo() {
-        showAbout = true
-    }
-    
     func onAppear() {
         refreshQRCode()
+        // 监听刷新间隔变化通知
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("QRRefreshIntervalChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            if let newInterval = notification.object as? Int {
+                self?.updateRefreshInterval(newInterval)
+            }
+        }
     }
     
     func onDisappear() {
         stopTimer()
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("QRRefreshIntervalChanged"), object: nil)
     }
     
     deinit {
