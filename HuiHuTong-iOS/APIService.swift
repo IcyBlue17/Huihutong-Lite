@@ -4,6 +4,33 @@ import Foundation
 class APIService: ObservableObject {
     private let baseURL = "https://api.215123.cn"
     
+    // 复用 URLSession 以提高性能
+    private lazy var urlSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15.0
+        config.timeoutIntervalForResource = 30.0
+        return URLSession(configuration: config)
+    }()
+    
+    // 通用请求方法
+    private func performRequest<T: Codable>(url: URL, headers: [String: String] = [:], responseType: T.Type) async throws -> T {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        
+        let (data, response) = try await urlSession.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        
+        return try JSONDecoder().decode(responseType, from: data)
+    }
+    
     struct LoginResponse: Codable {
         let data: LoginData
     }
@@ -116,17 +143,7 @@ class APIService: ObservableObject {
             throw URLError(.badURL)
         }
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        
-        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
+        let loginResponse = try await performRequest(url: url, responseType: LoginResponse.self)
         return loginResponse.data.token
     }
     
@@ -135,18 +152,7 @@ class APIService: ObservableObject {
             throw URLError(.badURL)
         }
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(satoken, forHTTPHeaderField: "satoken")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        
-        let qrResponse = try JSONDecoder().decode(QRCodeResponse.self, from: data)
+        let qrResponse = try await performRequest(url: url, headers: ["satoken": satoken], responseType: QRCodeResponse.self)
         return qrResponse.data
     }
     
@@ -154,15 +160,8 @@ class APIService: ObservableObject {
         guard let url = URL(string: "\(baseURL)/pms/welcome/make-code-info") else {
             throw URLError(.badURL)
         }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(satoken, forHTTPHeaderField: "satoken")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        let userInfoResponse = try JSONDecoder().decode(UserInfoResponse.self, from: data)
+        
+        let userInfoResponse = try await performRequest(url: url, headers: ["satoken": satoken], responseType: UserInfoResponse.self)
         return userInfoResponse.data
     }
     func getBuildingList(satoken: String, apartmentId: Int, buildingId: String = "", floorId: String = "", roomId: String = "") async throws -> [BuildingInfo] {
@@ -170,56 +169,25 @@ class APIService: ObservableObject {
             throw URLError(.badURL)
         }
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(satoken, forHTTPHeaderField: "satoken")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        
-        let buildingResponse = try JSONDecoder().decode(BuildingListResponse.self, from: data)
+        let buildingResponse = try await performRequest(url: url, headers: ["satoken": satoken], responseType: BuildingListResponse.self)
         return buildingResponse.result
     }
+    
     func getFloorList(satoken: String, apartmentId: Int, buildingId: String) async throws -> [BuildingInfo] {
         guard let url = URL(string: "\(baseURL)/proxy/qy/sdcz/listFloor?apartmentId=\(apartmentId)&buildingId=\(buildingId)&floorId=&roomId=") else {
             throw URLError(.badURL)
         }
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(satoken, forHTTPHeaderField: "satoken")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        
-        let floorResponse = try JSONDecoder().decode(BuildingListResponse.self, from: data)
+        let floorResponse = try await performRequest(url: url, headers: ["satoken": satoken], responseType: BuildingListResponse.self)
         return floorResponse.result
     }
+    
     func getRoomList(satoken: String, apartmentId: Int, buildingId: String, floorId: String) async throws -> [BuildingInfo] {
         guard let url = URL(string: "\(baseURL)/proxy/qy/sdcz/listRoom?apartmentId=\(apartmentId)&buildingId=\(buildingId)&floorId=\(floorId)&roomId=") else {
             throw URLError(.badURL)
         }
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(satoken, forHTTPHeaderField: "satoken")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        
-        let roomResponse = try JSONDecoder().decode(BuildingListResponse.self, from: data)
+        let roomResponse = try await performRequest(url: url, headers: ["satoken": satoken], responseType: BuildingListResponse.self)
         return roomResponse.result
     }
     struct BalanceResponse: Codable {
@@ -235,37 +203,16 @@ class APIService: ObservableObject {
             throw URLError(.badURL)
         }
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(satoken, forHTTPHeaderField: "satoken")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        
-        let balanceResponse = try JSONDecoder().decode(BalanceResponse.self, from: data)
+        let balanceResponse = try await performRequest(url: url, headers: ["satoken": satoken], responseType: BalanceResponse.self)
         return balanceResponse.result
     }
+    
     func getLoginInfo(satoken: String) async throws -> LoginInfoData {
         guard let url = URL(string: "\(baseURL)/pms/welcome/login-info") else {
             throw URLError(.badURL)
         }
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(satoken, forHTTPHeaderField: "satoken")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        
-        let loginInfoResponse = try JSONDecoder().decode(LoginInfoResponse.self, from: data)
+        let loginInfoResponse = try await performRequest(url: url, headers: ["satoken": satoken], responseType: LoginInfoResponse.self)
         guard loginInfoResponse.code == 200, let userData = loginInfoResponse.data else {
             throw NSError(domain: "APIError", code: loginInfoResponse.code, userInfo: [NSLocalizedDescriptionKey: loginInfoResponse.message])
         }

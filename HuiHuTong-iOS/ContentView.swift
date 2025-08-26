@@ -377,7 +377,6 @@ struct UtilityBillView: View {
     @State private var isLoadingFloors = false
     @State private var isLoadingRooms = false
     @State private var isQueryingBalance = false
-    @State private var isQueryingBill = false
     @State private var errorMessage = ""
     @State private var showError = false
     @Environment(\.colorScheme) var colorScheme
@@ -642,10 +641,10 @@ struct UtilityBillView: View {
                                 .foregroundColor(.blue)
                             }
                             .disabled(isQueryingBalance)
-                            Button(action: rechargeBalance) {
+                            Button(action: openWeChat) {
                                 HStack {
-                                    Image(systemName: "plus.circle.fill")
-                                    Text("充值")
+                                    Image(systemName: "message.fill")
+                                    Text("打开微信")
                                 }
                                 .font(.system(size: 16, weight: .semibold))
                                 .padding(.horizontal, 20)
@@ -728,8 +727,8 @@ struct UtilityBillView: View {
         
         Task {
             do {
-                guard let settings = try? await getAppSettings(),
-                      !settings.openId.isEmpty else {
+                let settings = try await getAppSettings()
+                guard !settings.openId.isEmpty else {
                     await MainActor.run {
                         errorMessage = "请先在个人信息页面设置OpenID"
                         showError = true
@@ -763,8 +762,8 @@ struct UtilityBillView: View {
         
         Task {
             do {
-                guard let settings = try? await getAppSettings(),
-                      !settings.openId.isEmpty else {
+                let settings = try await getAppSettings()
+                guard !settings.openId.isEmpty else {
                     await MainActor.run {
                         errorMessage = "请先在个人信息页面设置OpenID"
                         showError = true
@@ -799,8 +798,8 @@ struct UtilityBillView: View {
         
         Task {
             do {
-                guard let settings = try? await getAppSettings(),
-                      !settings.openId.isEmpty else {
+                let settings = try await getAppSettings()
+                guard !settings.openId.isEmpty else {
                     await MainActor.run {
                         errorMessage = "请先在个人信息页面设置OpenID"
                         showError = true
@@ -827,11 +826,8 @@ struct UtilityBillView: View {
     }
     
     private func queryBill() {
-        guard let building = selectedBuilding,
-              let floor = selectedFloor,
-              let room = selectedRoom else { return }
-        
-        isQueryingBill = true
+        // 预留功能，暂未实现详细账单查询
+        billInfo = "消费详情功能开发中..."
     }
     
     private func queryBalance() {
@@ -844,8 +840,8 @@ struct UtilityBillView: View {
         
         Task {
             do {
-                guard let settings = try? await getAppSettings(),
-                      !settings.openId.isEmpty else {
+                let settings = try await getAppSettings()
+                guard !settings.openId.isEmpty else {
                     await MainActor.run {
                         errorMessage = "请先在个人信息页面设置OpenID"
                         showError = true
@@ -871,10 +867,21 @@ struct UtilityBillView: View {
         }
     }
     
-    private func rechargeBalance() {
-        // TODO: 实现充值功能
-        errorMessage = "充值功能即将上线，敬请期待！"
-        showError = true
+    private func openWeChat() {
+        if let url = URL(string: "weixin://") {
+            UIApplication.shared.open(url) { success in
+                if !success {
+                    // 如果无法打开微信，提示用户
+                    DispatchQueue.main.async {
+                        self.errorMessage = "无法打开微信，请确保已安装微信应用"
+                        self.showError = true
+                    }
+                }
+            }
+        } else {
+            errorMessage = "无法打开微信"
+            showError = true
+        }
     }
     
     private func saveUtilitySelection() {
@@ -911,55 +918,35 @@ struct UtilityBillView: View {
                     
                     await MainActor.run {
                         selectedApartment = apartment
+                        
+                        // 创建通用的 BuildingInfo 对象
+                        let savedBuildingInfo = BuildingInfo(
+                            roomId: settings.selectedRoomId,
+                            roomName: settings.selectedRoomName,
+                            id: settings.selectedRoomId,
+                            apartmentName: settings.selectedApartmentName,
+                            floorName: settings.selectedFloorName,
+                            apartmentId: String(settings.selectedApartmentId),
+                            buildingId: settings.selectedBuildingId,
+                            buildingName: settings.selectedBuildingName,
+                            xiaoquId: "",
+                            fangJianId: settings.selectedRoomId,
+                            floorId: settings.selectedFloorId
+                        )
+                        
                         if !settings.selectedBuildingName.isEmpty {
-                            selectedBuilding = BuildingInfo(
-                                roomId: settings.selectedRoomId,
-                                roomName: settings.selectedRoomName,
-                                id: settings.selectedRoomId,
-                                apartmentName: settings.selectedApartmentName,
-                                floorName: settings.selectedFloorName,
-                                apartmentId: String(settings.selectedApartmentId),
-                                buildingId: settings.selectedBuildingId,
-                                buildingName: settings.selectedBuildingName,
-                                xiaoquId: "",
-                                fangJianId: settings.selectedRoomId,
-                                floorId: settings.selectedFloorId
-                            )
+                            selectedBuilding = savedBuildingInfo
                         }
                         if !settings.selectedFloorName.isEmpty {
-                            selectedFloor = BuildingInfo(
-                                roomId: settings.selectedRoomId,
-                                roomName: settings.selectedRoomName,
-                                id: settings.selectedRoomId,
-                                apartmentName: settings.selectedApartmentName,
-                                floorName: settings.selectedFloorName,
-                                apartmentId: String(settings.selectedApartmentId),
-                                buildingId: settings.selectedBuildingId,
-                                buildingName: settings.selectedBuildingName,
-                                xiaoquId: "",
-                                fangJianId: settings.selectedRoomId,
-                                floorId: settings.selectedFloorId
-                            )
+                            selectedFloor = savedBuildingInfo
                         }
-                        
                         if !settings.selectedRoomName.isEmpty {
-                            selectedRoom = BuildingInfo(
-                                roomId: settings.selectedRoomId,
-                                roomName: settings.selectedRoomName,
-                                id: settings.selectedRoomId,
-                                apartmentName: settings.selectedApartmentName,
-                                floorName: settings.selectedFloorName,
-                                apartmentId: String(settings.selectedApartmentId),
-                                buildingId: settings.selectedBuildingId,
-                                buildingName: settings.selectedBuildingName,
-                                xiaoquId: "",
-                                fangJianId: settings.selectedRoomId,
-                                floorId: settings.selectedFloorId
-                            )
+                            selectedRoom = savedBuildingInfo
                         }
                     }
                 }
             } catch {
+                // 加载失败时静默处理
             }
         }
     }
@@ -999,120 +986,33 @@ struct PersonalInfoView: View {
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 24) {
-                    VStack(spacing: 16) {
-                        HStack {
-                            Image(systemName: "key.fill")
-                                .font(.title2)
-                                .foregroundColor(.blue)
-                            
-                            Text("OpenID 设置")
-                                .font(.headline)
-                                .foregroundColor(colorScheme == .dark ? .white : .primary)
-                            
-                            Spacer()
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(isOpenIdValid ? Color.green : Color.red)
-                                    .frame(width: 8, height: 8)
-                                Text(isOpenIdValid ? "已验证" : "未验证")
-                                    .font(.caption)
-                                    .foregroundColor(isOpenIdValid ? .green : .red)
-                            }
-                        }
-                        
-                        Button(action: {
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 24) {
+                    OpenIdSettingsSection(
+                        isOpenIdValid: isOpenIdValid,
+                        isValidating: isValidating,
+                        colorScheme: colorScheme,
+                        onOpenIdSetup: {
                             loadCurrentOpenId()
                             showingOpenIdInput = true
-                        }) {
-                            HStack {
-                                Image(systemName: "pencil")
-                                Text(isOpenIdValid ? "修改 OpenID" : "设置 OpenID")
-                            }
-                            .font(.system(size: 16, weight: .semibold))
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 12)
-                            .background(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                            .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
                         }
-                        .disabled(isValidating)
-                    }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
                     )
-                    VStack(spacing: 16) {
-                        HStack {
-                            Image(systemName: "person.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(.green)
-                            
-                            Text("个人信息")
-                                .font(.headline)
-                                .foregroundColor(colorScheme == .dark ? .white : .primary)
-                            
-                            Spacer()
-                            
-                            if isLoading {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                            }
-                        }
-                        
-                        if let info = personalInfo {
-                            VStack(spacing: 12) {
-                                PersonalInfoRow(icon: "person.fill", title: "姓名", value: userDetailInfo?.name ?? info.name, colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "phone.fill", title: "手机号", value: info.phone, colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "creditcard.fill", title: "身份证", value: info.idCard, colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "number", title: "学号/工号", value: info.identifier, colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "person.crop.circle", title: "性别", value: info.sex == "1" ? "男" : (info.sex == "0" ? "女" : info.sex), colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "building.fill", title: "单位", value: userDetailInfo?.companyName ?? "-", colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "building.2.fill", title: "宿舍", value: userDetailInfo?.apartment.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ,", with: "") ?? "-", colorScheme: colorScheme)
-                            }
-                        } else {
-                            VStack(spacing: 12) {
-                                PersonalInfoRow(icon: "person.fill", title: "姓名", value: "-", colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "phone.fill", title: "手机号", value: "-", colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "creditcard.fill", title: "身份证", value: "-", colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "number", title: "识别号", value: "-", colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "person.crop.circle", title: "性别", value: "-", colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "building.fill", title: "单位", value: "-", colorScheme: colorScheme)
-                                PersonalInfoRow(icon: "building.2.fill", title: "宿舍", value: "-", colorScheme: colorScheme)
-                            }
-                        }
-                        
-                        if isOpenIdValid && personalInfo == nil {
-                            Button(action: loadPersonalInfo) {
-                                HStack {
-                                    Image(systemName: "arrow.clockwise")
-                                    Text("刷新信息")
-                                }
-                                .font(.system(size: 14))
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.blue.opacity(0.1))
-                                )
-                                .foregroundColor(.blue)
-                            }
-                        }
+                    
+                    if let info = personalInfo {
+                        PersonalInfoSection(
+                            personalInfo: info,
+                            userDetailInfo: userDetailInfo,
+                            colorScheme: colorScheme
+                        )
+                    } else {
+                        EmptyPersonalInfoSection(
+                            isOpenIdValid: isOpenIdValid,
+                            isLoading: isLoading,
+                            colorScheme: colorScheme,
+                            onRefresh: loadPersonalInfo
+                        )
                     }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
-                    )
+                    
                     PreferencesView(modelContext: modelContext)
                 }
                 .padding()
@@ -1274,7 +1174,7 @@ struct PersonalInfoView: View {
                     try modelContext.save()
                 }
             } catch {
-                print("保存个人信息失败: \(error)")
+                // 保存失败时静默处理
             }
         }
     }
@@ -1305,7 +1205,7 @@ struct PersonalInfoView: View {
                     }
                 }
             } catch {
-                print("加载个人信息失败: \(error)")
+                // 加载失败时静默处理
             }
         }
     }
@@ -1324,6 +1224,163 @@ struct PersonalInfoView: View {
                 return newSettings
             }
         }
+    }
+}
+
+// 分离OpenID设置板块
+struct OpenIdSettingsSection: View {
+    let isOpenIdValid: Bool
+    let isValidating: Bool
+    let colorScheme: ColorScheme
+    let onOpenIdSetup: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Image(systemName: "key.fill")
+                    .font(.title2)
+                    .foregroundColor(.blue)
+                
+                Text("OpenID 设置")
+                    .font(.headline)
+                    .foregroundColor(colorScheme == .dark ? .white : .primary)
+                
+                Spacer()
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(isOpenIdValid ? Color.green : Color.red)
+                        .frame(width: 8, height: 8)
+                    Text(isOpenIdValid ? "已验证" : "未验证")
+                        .font(.caption)
+                        .foregroundColor(isOpenIdValid ? .green : .red)
+                }
+            }
+            
+            Button(action: onOpenIdSetup) {
+                HStack {
+                    Image(systemName: "pencil")
+                    Text(isOpenIdValid ? "修改 OpenID" : "设置 OpenID")
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .foregroundColor(.white)
+                .cornerRadius(10)
+                .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
+            }
+            .disabled(isValidating)
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+        )
+    }
+}
+
+// 分离个人信息板块
+struct PersonalInfoSection: View {
+    let personalInfo: APIService.LoginInfoData
+    let userDetailInfo: APIService.UserInfoData?
+    let colorScheme: ColorScheme
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Image(systemName: "person.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.green)
+                
+                Text("个人信息")
+                    .font(.headline)
+                    .foregroundColor(colorScheme == .dark ? .white : .primary)
+                
+                Spacer()
+            }
+            
+            VStack(spacing: 12) {
+                PersonalInfoRow(icon: "person.fill", title: "姓名", value: userDetailInfo?.name ?? personalInfo.name, colorScheme: colorScheme)
+                PersonalInfoRow(icon: "phone.fill", title: "手机号", value: personalInfo.phone, colorScheme: colorScheme)
+                PersonalInfoRow(icon: "creditcard.fill", title: "身份证", value: personalInfo.idCard, colorScheme: colorScheme)
+                PersonalInfoRow(icon: "number", title: "学号/工号", value: personalInfo.identifier, colorScheme: colorScheme)
+                PersonalInfoRow(icon: "person.crop.circle", title: "性别", value: personalInfo.sex == "1" ? "男" : (personalInfo.sex == "0" ? "女" : personalInfo.sex), colorScheme: colorScheme)
+                PersonalInfoRow(icon: "building.fill", title: "单位", value: userDetailInfo?.companyName ?? "-", colorScheme: colorScheme)
+                PersonalInfoRow(icon: "building.2.fill", title: "宿舍", value: userDetailInfo?.apartment.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ,", with: "") ?? "-", colorScheme: colorScheme)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+        )
+    }
+}
+
+// 空个人信息板块
+struct EmptyPersonalInfoSection: View {
+    let isOpenIdValid: Bool
+    let isLoading: Bool
+    let colorScheme: ColorScheme
+    let onRefresh: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Image(systemName: "person.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.green)
+                
+                Text("个人信息")
+                    .font(.headline)
+                    .foregroundColor(colorScheme == .dark ? .white : .primary)
+                
+                Spacer()
+                
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                }
+            }
+            
+            VStack(spacing: 12) {
+                PersonalInfoRow(icon: "person.fill", title: "姓名", value: "-", colorScheme: colorScheme)
+                PersonalInfoRow(icon: "phone.fill", title: "手机号", value: "-", colorScheme: colorScheme)
+                PersonalInfoRow(icon: "creditcard.fill", title: "身份证", value: "-", colorScheme: colorScheme)
+                PersonalInfoRow(icon: "number", title: "识别号", value: "-", colorScheme: colorScheme)
+                PersonalInfoRow(icon: "person.crop.circle", title: "性别", value: "-", colorScheme: colorScheme)
+                PersonalInfoRow(icon: "building.fill", title: "单位", value: "-", colorScheme: colorScheme)
+                PersonalInfoRow(icon: "building.2.fill", title: "宿舍", value: "-", colorScheme: colorScheme)
+            }
+            
+            if isOpenIdValid {
+                Button(action: onRefresh) {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("刷新信息")
+                    }
+                    .font(.system(size: 14))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.blue.opacity(0.1))
+                    )
+                    .foregroundColor(.blue)
+                }
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+        )
     }
 }
 
@@ -1526,7 +1583,7 @@ struct PreferencesView: View {
                     intervalInput = "\(settings.qrRefreshInterval)" // 同步输入框的值
                 }
             } catch {
-                print("加载偏好设置失败: \(error)")
+                // 加载偏好设置时静默处理
             }
         }
     }
@@ -1543,7 +1600,7 @@ struct PreferencesView: View {
                     try modelContext.save()
                 }
             } catch {
-                print("保存偏好设置失败: \(error)")
+                // 保存偏好设置时静默处理
             }
         }
     }
