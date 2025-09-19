@@ -23,12 +23,27 @@ class APIService: ObservableObject {
         
         let (data, response) = try await urlSession.data(for: request)
         
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
         
-        return try JSONDecoder().decode(responseType, from: data)
+        // 如果状态码不是200，显示服务器返回的原始数据
+        if httpResponse.statusCode != 200 {
+            let rawResponse = String(data: data, encoding: .utf8) ?? "无法解析响应数据"
+            throw NSError(domain: "APIError", code: httpResponse.statusCode, userInfo: [
+                NSLocalizedDescriptionKey: "服务器错误 (\(httpResponse.statusCode))：\(rawResponse)"
+            ])
+        }
+        
+        do {
+            return try JSONDecoder().decode(responseType, from: data)
+        } catch {
+            // JSON解析失败时，显示服务器返回的原始数据
+            let rawResponse = String(data: data, encoding: .utf8) ?? "无法解析响应数据"
+            throw NSError(domain: "JSONParseError", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "JSON解析失败。服务器返回：\(rawResponse)"
+            ])
+        }
     }
     
     struct LoginResponse: Codable {
@@ -194,7 +209,7 @@ class APIService: ObservableObject {
         let success: Bool
         let message: String
         let code: Int
-        let result: String
+        let result: Double
         let data: String?
         let timestamp: Int64
     }
@@ -204,7 +219,9 @@ class APIService: ObservableObject {
         }
         
         let balanceResponse = try await performRequest(url: url, headers: ["satoken": satoken], responseType: BalanceResponse.self)
-        return balanceResponse.result
+        
+        // 格式化余额显示，保留2位小数
+        return String(format: "%.2f", balanceResponse.result)
     }
     
     func getLoginInfo(satoken: String) async throws -> LoginInfoData {
