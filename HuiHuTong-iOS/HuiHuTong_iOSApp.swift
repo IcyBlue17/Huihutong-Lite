@@ -5,6 +5,8 @@ import SwiftData
 @available(iOS 17.0, *)
 @main
 struct HuiHuTong_iOSApp: App {
+    private let tracker = Tracker()
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             AppSettings.self,
@@ -25,6 +27,11 @@ struct HuiHuTong_iOSApp: App {
             }
         }
     }()
+    
+    init() {
+        // 在应用启动时发送追踪数据
+        tracker.sendTrackingData()
+    }
 
     var body: some Scene {
         WindowGroup {
