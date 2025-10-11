@@ -7,9 +7,12 @@ typealias BuildingInfo = APIService.BuildingInfo
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) var colorScheme
+
     @State private var selectedTab = 0
+
     @State private var isOpenIdValid = false
     @State private var isValidatingOpenId = true
+
     @State private var colorModePreference = 0 //0跟随系统,1浅色,2深色
     
     var body: some View {
@@ -38,6 +41,7 @@ struct ContentView: View {
                     }
                     .tag(0)
             }
+
             if isValidatingOpenId {
                 LoadingView(message: "正在验证OpenID...")
                     .tabItem {
@@ -62,12 +66,14 @@ struct ContentView: View {
                     }
                     .tag(1)
             }
+
             PersonalInfoView(modelContext: modelContext, isOpenIdValid: $isOpenIdValid)
                 .tabItem {
                     Image(systemName: "person.fill")
                     Text("个人信息")
                 }
                 .tag(2)
+
             AboutView()
                 .tabItem {
                     Image(systemName: "info.circle")
@@ -75,6 +81,7 @@ struct ContentView: View {
                 }
                 .tag(3)
         }
+        .preferredColorScheme(getPreferredColorScheme())
         .onAppear {
             loadStartupPreferences()
             checkOpenIdValidation()
@@ -85,13 +92,13 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ColorModeChanged"))) { _ in
             loadColorModePreference()
         }
-        .preferredColorScheme(getPreferredColorScheme())
         .onChange(of: isOpenIdValid) { newValue in
             if !newValue {
                 selectedTab = 2 // 个人信息页面
             }
         }
     }
+    
     private func checkOpenIdValidation() {
         Task {
             do {
@@ -157,24 +164,8 @@ struct ContentView: View {
     }
     
     private func getAppSettings() async throws -> AppSettings {
-        return await MainActor.run {
-            let descriptor = FetchDescriptor<AppSettings>(
-                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
-            )
-            do {
-                let allSettings = try modelContext.fetch(descriptor)
-                
-                if let settings = allSettings.first {
-                    return settings
-                } else {
-                    let newSettings = AppSettings()
-                    modelContext.insert(newSettings)
-                    try modelContext.save()
-                    return newSettings
-                }
-            } catch {
-                return AppSettings()
-            }
+        await MainActor.run {
+            modelContext.getOrCreateAppSettings()
         }
     }
 }
@@ -212,6 +203,7 @@ struct DisabledView: View {
             .navigationTitle("慧湖通Lite")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }
 struct AccessControlView: View {
@@ -298,7 +290,7 @@ struct AccessControlView: View {
                     VStack(spacing: 8) {
                         InfoRow(icon: "person.fill", title: "姓名", value: viewModel.userName, colorScheme: colorScheme)
                         InfoRow(icon: "building.fill", title: "单位", value: viewModel.companyName, colorScheme: colorScheme)
-                        InfoRow(icon: "building.2.fill", title: "宿舍", value: viewModel.apartment.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ,", with: ""), colorScheme: colorScheme)
+                        InfoRow(icon: "building.2.fill", title: "宿舍", value: viewModel.apartment.cleanedApartmentString, colorScheme: colorScheme)
                         InfoRow(icon: "calendar.badge.clock", title: "生效", value: viewModel.passTime, colorScheme: colorScheme)
                     }
                     .padding(.horizontal, 20)
@@ -320,6 +312,7 @@ struct AccessControlView: View {
             .navigationTitle("慧湖通Lite")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .navigationViewStyle(StackNavigationViewStyle())
         .onAppear {
             viewModel.setModelContext(modelContext)
             viewModel.onAppear()
@@ -364,85 +357,352 @@ struct InfoRow: View {
 }
 struct UtilityBillView: View {
     let modelContext: ModelContext
-    @State private var apartmentIdInput: String = ""
-    @State private var roomIdInput: String = ""
+    @State private var selectedApartmentId: Int? = nil
+    @State private var selectedBuilding: BuildingInfo? = nil
+    @State private var selectedFloor: BuildingInfo? = nil
+    @State private var selectedRoom: BuildingInfo? = nil
+    @State private var buildingList: [BuildingInfo] = []
+    @State private var floorList: [BuildingInfo] = []
+    @State private var roomList: [BuildingInfo] = []
     @State private var roomBalance: String = ""
+    @State private var queryTimestamp: Date? = nil
+    @State private var isLoadingBuildings = false
+    @State private var isLoadingFloors = false
+    @State private var isLoadingRooms = false
     @State private var isQueryingBalance = false
     @State private var errorMessage = ""
     @State private var showError = false
-    @State private var roomInfo: String = ""
+    @State private var showComingSoon = false
     @Environment(\.colorScheme) var colorScheme
     private let apiService = APIService()
     
-    private var canQueryBalance: Bool {
-        !apartmentIdInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && 
-        !roomIdInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    // 公寓列表定义
+    private let apartments = [
+        (id: 1, name: "文星学生公寓", available: true),
+        (id: 2, name: "文缘学生公寓", available: false),
+        (id: 3, name: "文萃学生公寓", available: false),
+        (id: 4, name: "文华学生公寓", available: false),
+        (id: 5, name: "文荟学生公寓", available: false)
+    ]
     
     var body: some View {
         NavigationView {
+            ScrollView {
             VStack(spacing: 20) {
-                // Apartment ID输入框
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("公寓ID")
+                    // 步骤1: 选择公寓
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "1.circle.fill")
+                                .foregroundColor(.blue)
+                            Text("选择公寓")
                         .font(.headline)
                         .foregroundColor(colorScheme == .dark ? .white : .primary)
-                    
-                    TextField("请输入公寓ID", text: $apartmentIdInput)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .keyboardType(.numberPad)
-                        .onChange(of: apartmentIdInput) { _ in
-                            // 清空之前的查询结果
-                            roomBalance = ""
-                            roomInfo = ""
+                            Spacer()
                         }
-                    
-                    Text("请输入公寓ID，例如：1（文星）、2（文荟）、3（文萃）、4（文华）、5（文缘）")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-                
-                // Room ID输入框
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("房间ID")
-                        .font(.headline)
+                        
+                        ForEach(apartments, id: \.id) { apartment in
+                            Button(action: {
+                                if apartment.available {
+                                    selectApartment(apartment.id)
+                                } else {
+                                    showComingSoon = true
+                                }
+                            }) {
+                                HStack {
+                                    Text(apartment.name)
+                                        .font(.system(size: 15))
                         .foregroundColor(colorScheme == .dark ? .white : .primary)
                     
-                    HStack(spacing: 12) {
-                        TextField("请输入房间ID", text: $roomIdInput)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .keyboardType(.numberPad)
-                            .onSubmit {
-                                if canQueryBalance {
-                                    queryBalance()
+                                    Spacer()
+                                    
+                                    if !apartment.available {
+                                        Text("开发中")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.orange.opacity(0.1))
+                                            .cornerRadius(4)
+                                    }
+                                    
+                                    if selectedApartmentId == apartment.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                    } else {
+                                        Image(systemName: "circle")
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                                .padding()
+                            .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(selectedApartmentId == apartment.id ? 
+                                              Color.blue.opacity(0.1) : 
+                                              (colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6).opacity(0.3)))
+                                )
+                            }
+                        }
+                        
+                        if isLoadingBuildings {
+                            HStack {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("正在加载楼栋信息...")
+                        .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.top, 8)
+                        }
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+                    )
+                    
+                    // 步骤2: 选择楼栋
+                    if !buildingList.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "2.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("选择楼栋")
+                                    .font(.headline)
+                                    .foregroundColor(colorScheme == .dark ? .white : .primary)
+                                Spacer()
+                            }
+                            
+                            // 去重并获取唯一的楼栋
+                            let uniqueBuildings = Dictionary(grouping: buildingList, by: { $0.buildingId })
+                                .compactMap { $0.value.first }
+                                .sorted { $0.buildingName < $1.buildingName }
+                            
+                            ForEach(uniqueBuildings, id: \.buildingId) { building in
+                                Button(action: {
+                                    selectBuilding(building)
+                                }) {
+                                    HStack {
+                                        Text(building.buildingName)
+                                            .font(.system(size: 15))
+                                    .foregroundColor(colorScheme == .dark ? .white : .primary)
+                                
+                                Spacer()
+                                
+                                        if selectedBuilding?.buildingId == building.buildingId {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundColor(.green)
+                                        } else {
+                                            Image(systemName: "circle")
+                                                .foregroundColor(.gray)
+                                        }
+                                    }
+                                    .padding()
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(selectedBuilding?.buildingId == building.buildingId ? 
+                                                  Color.green.opacity(0.1) : 
+                                                  (colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6).opacity(0.3)))
+                                    )
                                 }
                             }
-                        
-                        Button(action: queryBalance) {
+                            
+                            if isLoadingFloors {
                             HStack {
-                                Image(systemName: "magnifyingglass")
-                                Text("查询")
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("正在加载楼层信息...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.top, 8)
                             }
-                            .font(.system(size: 14, weight: .medium))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(canQueryBalance ? Color.blue : Color.gray)
-                            )
-                            .foregroundColor(.white)
                         }
-                        .disabled(!canQueryBalance || isQueryingBalance)
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+                        )
                     }
                     
-                    Text("请输入完整的房间ID，例如：12345")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-                
-                if !apartmentIdInput.isEmpty && !roomIdInput.isEmpty {
-                    VStack(spacing: 16) {
-                        VStack(spacing: 12) {
+                    // 步骤3: 选择楼层
+                    if !floorList.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "3.circle.fill")
+                                    .foregroundColor(.orange)
+                                Text("选择楼层")
+                                    .font(.headline)
+                                        .foregroundColor(colorScheme == .dark ? .white : .primary)
+                                Spacer()
+                            }
+                            
+                            // 去重并获取唯一的楼层
+                            let uniqueFloors = Dictionary(grouping: floorList, by: { $0.floorId })
+                                .compactMap { $0.value.first }
+                                .sorted { Int($0.floorId) ?? 0 < Int($1.floorId) ?? 0 }
+                            
+                            ForEach(uniqueFloors, id: \.floorId) { floor in
+                                Button(action: {
+                                    selectFloor(floor)
+                                }) {
+                                    HStack {
+                                        Text(floor.floorName)
+                                            .font(.system(size: 15))
+                                            .foregroundColor(colorScheme == .dark ? .white : .primary)
+                                
+                                Spacer()
+                                
+                                        if selectedFloor?.floorId == floor.floorId {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundColor(.orange)
+                                        } else {
+                                            Image(systemName: "circle")
+                                                .foregroundColor(.gray)
+                                        }
+                                    }
+                                    .padding()
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(selectedFloor?.floorId == floor.floorId ? 
+                                                  Color.orange.opacity(0.1) : 
+                                                  (colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6).opacity(0.3)))
+                                    )
+                                }
+                            }
+                            
+                            if isLoadingRooms {
+                                HStack {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("正在加载房间信息...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.top, 8)
+                            }
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+                        )
+                    }
+                    
+                    // 步骤4: 选择房间（折叠菜单）
+                    if !roomList.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "4.circle.fill")
+                                    .foregroundColor(.purple)
+                                Text("选择房间")
+                                                .font(.headline)
+                                    .foregroundColor(colorScheme == .dark ? .white : .primary)
+                                Spacer()
+                            }
+                            
+                            Picker("选择房间", selection: Binding(
+                                get: { selectedRoom?.id ?? "" },
+                                set: { newValue in
+                                    if let room = roomList.first(where: { $0.id == newValue }) {
+                                        selectRoom(room)
+                                    }
+                                }
+                            )) {
+                                Text("请选择房间").tag("")
+                                ForEach(roomList, id: \.id) { room in
+                                    Text(room.roomName).tag(room.id ?? "")
+                                }
+                            }
+                            .pickerStyle(MenuPickerStyle())
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6).opacity(0.5))
+                            )
+                            
+                            if let room = selectedRoom {
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.purple)
+                                    Text("已选择：\(room.roomName)")
+                                        .font(.subheadline)
+                                        .foregroundColor(colorScheme == .dark ? .white : .primary)
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+                        )
+                    }
+                        
+                    // 底部操作按钮
+                    if selectedRoom != nil {
+                        HStack(spacing: 12) {
+                            Button(action: {
+                                if let apartmentId = selectedApartmentId,
+                                   let roomId = selectedRoom?.id {
+                                    queryRoomBalance(apartmentId: apartmentId, roomId: roomId)
+                                }
+                            }) {
+                                HStack {
+                                    if isQueryingBalance {
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    } else {
+                                        Image(systemName: "magnifyingglass")
+                                    }
+                                    Text(isQueryingBalance ? "查询中..." : "立即查询")
+                                }
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                                .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
+                            }
+                            .disabled(isQueryingBalance)
+                            
+                            Button(action: openWeChat) {
+                                HStack {
+                                    Image(systemName: "message.fill")
+                                    Text("打开微信")
+                                }
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [Color.green, Color.green.opacity(0.8)]),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                                .shadow(color: .green.opacity(0.3), radius: 4, x: 0, y: 2)
+                            }
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
+                        )
+                    }
+                    
+                    // 余额显示卡片
+                    if !roomBalance.isEmpty, let timestamp = queryTimestamp {
+                        VStack(spacing: 16) {
                             HStack {
                                 Image(systemName: "creditcard.fill")
                                     .font(.title2)
@@ -453,108 +713,51 @@ struct UtilityBillView: View {
                                     .foregroundColor(colorScheme == .dark ? .white : .primary)
                                 
                                 Spacer()
-                                
-                                if isQueryingBalance {
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                }
                             }
                             
                             HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("公寓ID: \(apartmentIdInput)")
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("查询时间：")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
-                                    Text("房间ID: \(roomIdInput)")
+                                    Text(formatDate(timestamp))
                                         .font(.subheadline)
                                         .foregroundColor(colorScheme == .dark ? .white : .primary)
-                                }
-                                
-                                Spacer()
+                }
+                
+                Spacer()
                                 
                                 VStack(alignment: .trailing, spacing: 4) {
                                     Text("余额")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     
-                                    if isQueryingBalance {
-                                        Text("查询中...")
-                                            .font(.title2)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.orange)
-                                    } else if roomBalance.isEmpty {
-                                        Text("未查询")
-                                            .font(.title2)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.gray)
-                                    } else {
-                                        HStack(spacing: 4) {
-                                            Text("¥")
-                                                .font(.headline)
-                                                .foregroundColor(.green)
-                                            Text(roomBalance)
-                                                .font(.title2)
-                                                .fontWeight(.bold)
-                                                .foregroundColor(.green)
-                                        }
+                                    HStack(spacing: 4) {
+                                        Text("¥")
+                                            .font(.headline)
+                                            .foregroundColor(.green)
+                                        Text(roomBalance)
+                                            .font(.system(size: 28, weight: .bold))
+                                            .foregroundColor(.green)
                                     }
                                 }
                             }
-                        }
-                        .padding()
+            }
+            .padding()
                         .background(
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(colorScheme == .dark ? Color(.systemGray6).opacity(0.6) : Color(.systemGray6).opacity(0.3))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                                .stroke(Color.green.opacity(0.3), lineWidth: 2)
                         )
-                        
-                        HStack(spacing: 12) {
-                            Button(action: queryBalance) {
-                                HStack {
-                                    Image(systemName: "arrow.clockwise")
-                                    Text("刷新余额")
-                                }
-                                .font(.system(size: 16, weight: .medium))
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.blue.opacity(0.1))
-                                )
-                                .foregroundColor(.blue)
-                            }
-                            .disabled(isQueryingBalance)
-                            
-                            Button(action: openWeChat) {
-                                HStack {
-                                    Image(systemName: "message.fill")
-                                    Text("打开微信")
-                                }
-                                .font(.system(size: 16, weight: .semibold))
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [Color.green, Color.green.opacity(0.8)]),
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                                .shadow(color: .green.opacity(0.3), radius: 4, x: 0, y: 2)
-                            }
-                        }
                     }
-                    .padding(.vertical, 8)
+                    
+                    Spacer()
                 }
-                
-                Spacer()
+                .padding()
             }
-            .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 (colorScheme == .dark ? Color.black : Color(UIColor.systemBackground))
@@ -563,6 +766,17 @@ struct UtilityBillView: View {
             .navigationTitle("慧湖通Lite")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .navigationViewStyle(StackNavigationViewStyle())
+        .onAppear {
+            loadSavedSelection()
+        }
+        .alert("提示", isPresented: $showComingSoon) {
+            Button("确定") {
+                showComingSoon = false
+            }
+        } message: {
+            Text("该公寓功能开发中，敬请期待！")
+        }
         .alert("错误", isPresented: $showError) {
             Button("确定") {
                 showError = false
@@ -570,19 +784,163 @@ struct UtilityBillView: View {
         } message: {
             Text(errorMessage)
         }
-        .onAppear {
-            loadSavedUtilitySelection()
+    }
+    
+    // MARK: - 选择公寓
+    private func selectApartment(_ apartmentId: Int) {
+        selectedApartmentId = apartmentId
+        resetSelectionFrom(level: 1)
+        loadBuildingList(apartmentId: apartmentId)
+    }
+    
+    // 重置选择（从指定层级开始）
+    private func resetSelectionFrom(level: Int) {
+        if level <= 1 {
+            selectedBuilding = nil
+            buildingList = []
+        }
+        if level <= 2 {
+            selectedFloor = nil
+            floorList = []
+        }
+        if level <= 3 {
+            selectedRoom = nil
+            roomList = []
+        }
+        roomBalance = ""
+        queryTimestamp = nil
+    }
+    
+    // MARK: - 加载楼栋列表
+    private func loadBuildingList(apartmentId: Int) {
+        isLoadingBuildings = true
+        
+        Task {
+            do {
+                let settings = try await getAppSettings()
+                guard !settings.openId.isEmpty else {
+                    await MainActor.run {
+                        errorMessage = "请先在个人信息页面设置OpenID"
+                        showError = true
+                        isLoadingBuildings = false
+                    }
+                    return
+                }
+                
+                let satoken = try await apiService.getSatoken(openId: settings.openId)
+                let buildings = try await apiService.getBuildingList(satoken: satoken, apartmentId: apartmentId)
+                
+                await MainActor.run {
+                    buildingList = buildings
+                    isLoadingBuildings = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "加载楼栋失败：\(ErrorHandler.errorMessage(for: error))"
+                    showError = true
+                    isLoadingBuildings = false
+                }
+            }
         }
     }
     
-    
-    private func queryBalance() {
-        guard !apartmentIdInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !roomIdInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let apartmentId = Int(apartmentIdInput.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+    // MARK: - 选择楼栋
+    private func selectBuilding(_ building: BuildingInfo) {
+        selectedBuilding = building
+        resetSelectionFrom(level: 2)
+        saveUserSelection()
         
+        guard let apartmentId = selectedApartmentId else { return }
+        loadFloorList(apartmentId: apartmentId, buildingId: building.buildingId)
+    }
+    
+    // MARK: - 加载楼层列表
+    private func loadFloorList(apartmentId: Int, buildingId: String) {
+        isLoadingFloors = true
+        
+        Task {
+            do {
+                let settings = try await getAppSettings()
+                guard !settings.openId.isEmpty else {
+                    await MainActor.run {
+                        errorMessage = "请先在个人信息页面设置OpenID"
+                        showError = true
+                        isLoadingFloors = false
+                    }
+                    return
+                }
+                
+                let satoken = try await apiService.getSatoken(openId: settings.openId)
+                let floors = try await apiService.getFloorList(satoken: satoken, apartmentId: apartmentId, buildingId: buildingId)
+                
+                await MainActor.run {
+                    floorList = floors
+                    isLoadingFloors = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "加载楼层失败：\(ErrorHandler.errorMessage(for: error))"
+                    showError = true
+                    isLoadingFloors = false
+                }
+            }
+        }
+    }
+    
+    // MARK: - 选择楼层
+    private func selectFloor(_ floor: BuildingInfo) {
+        selectedFloor = floor
+        resetSelectionFrom(level: 3)
+        saveUserSelection()
+        
+        guard let apartmentId = selectedApartmentId,
+              let building = selectedBuilding else { return }
+        loadRoomList(apartmentId: apartmentId, buildingId: building.buildingId, floorId: floor.floorId)
+    }
+    
+    // MARK: - 加载房间列表
+    private func loadRoomList(apartmentId: Int, buildingId: String, floorId: String) {
+        isLoadingRooms = true
+        
+        Task {
+            do {
+                let settings = try await getAppSettings()
+                guard !settings.openId.isEmpty else {
+                    await MainActor.run {
+                        errorMessage = "请先在个人信息页面设置OpenID"
+                    showError = true
+                        isLoadingRooms = false
+                    }
+                    return
+                }
+                
+                let satoken = try await apiService.getSatoken(openId: settings.openId)
+                let rooms = try await apiService.getRoomList(satoken: satoken, apartmentId: apartmentId, buildingId: buildingId, floorId: floorId)
+                
+                await MainActor.run {
+                    roomList = rooms
+                    isLoadingRooms = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "加载房间失败：\(ErrorHandler.errorMessage(for: error))"
+                    showError = true
+                    isLoadingRooms = false
+                }
+            }
+        }
+    }
+    
+    // MARK: - 选择房间（不自动查询）
+    private func selectRoom(_ room: BuildingInfo) {
+        selectedRoom = room
+        // 保存用户的选择
+        saveUserSelection()
+    }
+    
+    // MARK: - 查询房间余额
+    private func queryRoomBalance(apartmentId: Int, roomId: String) {
         isQueryingBalance = true
-        roomBalance = ""
         
         Task {
             do {
@@ -597,81 +955,129 @@ struct UtilityBillView: View {
                 }
                 
                 let satoken = try await apiService.getSatoken(openId: settings.openId)
-                let balance = try await apiService.getRoomBalance(satoken: satoken, apartmentId: apartmentId, roomId: roomIdInput.trimmingCharacters(in: .whitespacesAndNewlines))
+                let balance = try await apiService.getRoomBalance(satoken: satoken, apartmentId: apartmentId, roomId: roomId)
                 
                 await MainActor.run {
                     roomBalance = balance
+                    queryTimestamp = Date()
                     isQueryingBalance = false
-                    // 保存查询记录
-                    saveUtilitySelection()
                 }
             } catch {
                 await MainActor.run {
-                    // 显示详细的错误信息，包括服务器返回的原始数据
-                    if let decodingError = error as? DecodingError {
-                        errorMessage = "JSON解析错误：\(decodingError.localizedDescription)"
-                    } else if let urlError = error as? URLError {
-                        errorMessage = "网络错误：\(urlError.localizedDescription)"
-                    } else {
-                        errorMessage = "查询失败：\(error.localizedDescription)"
-                    }
-                    showError = true
+                    errorMessage = "查询余额失败：\(ErrorHandler.errorMessage(for: error))"
+            showError = true
                     isQueryingBalance = false
                 }
             }
         }
     }
     
-    private func openWeChat() {
-        if let url = URL(string: "weixin://") {
-            UIApplication.shared.open(url) { success in
-                if !success {
-                    // 如果无法打开微信，提示用户
-                    DispatchQueue.main.async {
-                        self.errorMessage = "无法打开微信，请确保已安装微信应用"
-                        self.showError = true
-                    }
-                }
-            }
-        } else {
-            errorMessage = "无法打开微信"
-            showError = true
-        }
+    // MARK: - 格式化日期
+    private func formatDate(_ date: Date) -> String {
+        DateFormatters.chineseDateTime.string(from: date)
     }
     
-    private func saveUtilitySelection() {
-        guard !apartmentIdInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !roomIdInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let apartmentId = Int(apartmentIdInput.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
-        
+    // MARK: - 保存用户选择
+    private func saveUserSelection() {
         Task {
             do {
                 let settings = try await getAppSettings()
-                settings.selectedApartmentId = apartmentId
-                settings.selectedApartmentName = "公寓\(apartmentId)"
-                settings.selectedRoomId = roomIdInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                settings.selectedRoomName = "房间\(roomIdInput.trimmingCharacters(in: .whitespacesAndNewlines))"
-                // 清空不再使用的字段
-                settings.selectedBuildingId = ""
-                settings.selectedFloorId = ""
-                settings.selectedBuildingName = ""
-                settings.selectedFloorName = ""
+                
+                settings.selectedApartmentId = selectedApartmentId ?? 0
+                settings.selectedBuildingId = selectedBuilding?.buildingId ?? ""
+                settings.selectedBuildingName = selectedBuilding?.buildingName ?? ""
+                settings.selectedFloorId = selectedFloor?.floorId ?? ""
+                settings.selectedFloorName = selectedFloor?.floorName ?? ""
+                settings.selectedRoomId = selectedRoom?.id ?? ""
+                settings.selectedRoomName = selectedRoom?.roomName ?? ""
+                
+                // 获取公寓名称
+                if let apartmentId = selectedApartmentId {
+                    let apartmentName = apartments.first(where: { $0.id == apartmentId })?.name ?? ""
+                    settings.selectedApartmentName = apartmentName
+                }
+                
                 try await MainActor.run {
                     try modelContext.save()
                 }
             } catch {
+                // 保存失败时静默处理
             }
         }
     }
     
-    private func loadSavedUtilitySelection() {
+    // MARK: - 加载已保存的选择
+    private func loadSavedSelection() {
         Task {
             do {
                 let settings = try await getAppSettings()
+                
+                // 如果有保存的选择，恢复状态
                 if settings.selectedApartmentId != 0 {
                     await MainActor.run {
-                        apartmentIdInput = String(settings.selectedApartmentId)
-                        roomIdInput = settings.selectedRoomId
+                        selectedApartmentId = settings.selectedApartmentId
+                    }
+                    
+                    // 加载楼栋列表
+                    let satoken = try await apiService.getSatoken(openId: settings.openId)
+                    let buildings = try await apiService.getBuildingList(satoken: satoken, apartmentId: settings.selectedApartmentId)
+                    
+                    await MainActor.run {
+                        buildingList = buildings
+                        
+                        // 恢复选中的楼栋
+                        if !settings.selectedBuildingId.isEmpty {
+                            selectedBuilding = buildings.first(where: { $0.buildingId == settings.selectedBuildingId })
+                            
+                            if selectedBuilding != nil {
+                                // 加载楼层列表
+                                Task {
+                                    do {
+                                        let floors = try await apiService.getFloorList(
+                                            satoken: satoken,
+                                            apartmentId: settings.selectedApartmentId,
+                                            buildingId: settings.selectedBuildingId
+                                        )
+                                        
+                                        await MainActor.run {
+                                            floorList = floors
+                                            
+                                            // 恢复选中的楼层
+                                            if !settings.selectedFloorId.isEmpty {
+                                                selectedFloor = floors.first(where: { $0.floorId == settings.selectedFloorId })
+                                                
+                                                if selectedFloor != nil {
+                                                    // 加载房间列表
+                                                    Task {
+                                                        do {
+                                                            let rooms = try await apiService.getRoomList(
+                                                                satoken: satoken,
+                                                                apartmentId: settings.selectedApartmentId,
+                                                                buildingId: settings.selectedBuildingId,
+                                                                floorId: settings.selectedFloorId
+                                                            )
+                                                            
+                                                            await MainActor.run {
+                                                                roomList = rooms
+                                                                
+                                                                // 恢复选中的房间
+                                                                if !settings.selectedRoomId.isEmpty {
+                                                                    selectedRoom = rooms.first(where: { $0.id == settings.selectedRoomId })
+                                                                }
+                                                            }
+                                                        } catch {
+                                                            // 加载失败时静默处理
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } catch {
+                                        // 加载失败时静默处理
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } catch {
@@ -680,20 +1086,17 @@ struct UtilityBillView: View {
         }
     }
     
+    // MARK: - 打开微信
+    private func openWeChat() {
+        ExternalAppHelper.openWeChat { error in
+            self.errorMessage = error
+            self.showError = true
+        }
+    }
+    
     private func getAppSettings() async throws -> AppSettings {
-        return await MainActor.run {
-            let descriptor = FetchDescriptor<AppSettings>(
-                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
-            )
-            
-            if let settings = try? modelContext.fetch(descriptor).first {
-                return settings
-            } else {
-                // 如果没有设置记录，创建一个空的
-                let newSettings = AppSettings()
-                modelContext.insert(newSettings)
-                return newSettings
-            }
+        await MainActor.run {
+            modelContext.getOrCreateAppSettings()
         }
     }
 }
@@ -754,6 +1157,7 @@ struct PersonalInfoView: View {
             .navigationTitle("慧湖通Lite")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .navigationViewStyle(StackNavigationViewStyle())
         .onAppear {
             loadSavedPersonalInfo()
             if isOpenIdValid && personalInfo == nil {
@@ -940,18 +1344,8 @@ struct PersonalInfoView: View {
     }
     
     private func getAppSettings() async throws -> AppSettings {
-        return await MainActor.run {
-            let descriptor = FetchDescriptor<AppSettings>(
-                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
-            )
-            
-            if let settings = try? modelContext.fetch(descriptor).first {
-                return settings
-            } else {
-                let newSettings = AppSettings()
-                modelContext.insert(newSettings)
-                return newSettings
-            }
+        await MainActor.run {
+            modelContext.getOrCreateAppSettings()
         }
     }
 }
@@ -1039,9 +1433,9 @@ struct PersonalInfoSection: View {
                 PersonalInfoRow(icon: "phone.fill", title: "手机号", value: personalInfo.phone, colorScheme: colorScheme)
                 PersonalInfoRow(icon: "creditcard.fill", title: "身份证", value: personalInfo.idCard, colorScheme: colorScheme)
                 PersonalInfoRow(icon: "number", title: "学号/工号", value: personalInfo.identifier, colorScheme: colorScheme)
-                PersonalInfoRow(icon: "person.crop.circle", title: "性别", value: personalInfo.sex == "1" ? "男" : (personalInfo.sex == "0" ? "女" : personalInfo.sex), colorScheme: colorScheme)
+                PersonalInfoRow(icon: "person.crop.circle", title: "性别", value: personalInfo.sex.genderDisplay, colorScheme: colorScheme)
                 PersonalInfoRow(icon: "building.fill", title: "单位", value: userDetailInfo?.companyName ?? "-", colorScheme: colorScheme)
-                PersonalInfoRow(icon: "building.2.fill", title: "宿舍", value: userDetailInfo?.apartment.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ,", with: "") ?? "-", colorScheme: colorScheme)
+                PersonalInfoRow(icon: "building.2.fill", title: "宿舍", value: (userDetailInfo?.apartment ?? "").cleanedOrDash, colorScheme: colorScheme)
             }
         }
         .padding()
@@ -1142,7 +1536,6 @@ struct PersonalInfoRow: View {
 struct PreferencesView: View {
     let modelContext: ModelContext
     @Environment(\.colorScheme) var colorScheme
-    @State private var currentSettings: AppSettings?
     @State private var selectedStartupTab = 0
     @State private var selectedColorMode = 0
     @State private var qrRefreshInterval = 15
@@ -1305,11 +1698,10 @@ struct PreferencesView: View {
             do {
                 let settings = try await getAppSettings()
                 await MainActor.run {
-                    currentSettings = settings
                     selectedStartupTab = settings.startupTab
                     selectedColorMode = settings.colorMode
                     qrRefreshInterval = settings.qrRefreshInterval
-                    intervalInput = "\(settings.qrRefreshInterval)" // 同步输入框的值
+                    intervalInput = "\(settings.qrRefreshInterval)"
                 }
             } catch {
                 // 加载偏好设置时静默处理
@@ -1334,17 +1726,8 @@ struct PreferencesView: View {
         }
     }
     private func getAppSettings() async throws -> AppSettings {
-        let descriptor = FetchDescriptor<AppSettings>()
-        let settings = try modelContext.fetch(descriptor)
-        
-        if let existingSettings = settings.first {
-            return existingSettings
-        } else {
-            // 如果没有设置，创建新的
-            let newSettings = AppSettings()
-            modelContext.insert(newSettings)
-            try modelContext.save()
-            return newSettings
+        await MainActor.run {
+            modelContext.getOrCreateAppSettings()
         }
     }
 }

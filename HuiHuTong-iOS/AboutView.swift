@@ -5,189 +5,184 @@ struct AboutView: View {
     
     var body: some View {
         NavigationView {
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 20) {
-                    AppHeaderView(colorScheme: colorScheme)
-                    CoreFeaturesSection(colorScheme: colorScheme)
-                    QuickStartSection(colorScheme: colorScheme)
+            VStack(spacing: 0) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 32) {
+                        // 顶部图标和应用名称
+                        AppHeaderView(colorScheme: colorScheme)
+                            .padding(.top, 40)
+                        
+                        VStack(spacing: 16) {
+                            // 使用教程卡片
+                            TutorialCard(colorScheme: colorScheme)
+                            
+                            // 鸣谢卡片
+                            AcknowledgmentCard(colorScheme: colorScheme)
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        Spacer(minLength: 80)
+                    }
                 }
-                .padding(.horizontal, 20)
+                
+                // 底部版本号
+                Text("v0.0.1-beta")
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+                    .padding(.bottom, 20)
             }
-            .background((colorScheme == .dark ? Color.black : Color(UIColor.systemGroupedBackground)).ignoresSafeArea())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                (colorScheme == .dark ? Color.black : Color(UIColor.systemBackground))
+                    .ignoresSafeArea()
+            )
             .navigationTitle("关于")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }
-
-// 分离应用头部视图
 struct AppHeaderView: View {
     let colorScheme: ColorScheme
     
     var body: some View {
-        VStack(spacing: 16) {
-            Image("AppIconImage")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 80, height: 80)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-            
-            VStack(spacing: 8) {
-                Text("慧湖通Lite")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(colorScheme == .dark ? .white : .primary)
-                Text("宿舍生活全能助手")
-                    .font(.subheadline)
-                    .foregroundColor(colorScheme == .dark ? .gray : .secondary)
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 100, height: 100)
+                    .blur(radius: 10)
                 
-                Text("Ver.2.0.0")
-                    .font(.caption)
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Color.blue.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                Image("AppIconImage")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 90, height: 90)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
             }
-        }
-        .padding(.top, 20)
-    }
-}
-
-// 分离核心功能板块
-struct CoreFeaturesSection: View {
-    let colorScheme: ColorScheme
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionHeader(title: "核心功能", colorScheme: colorScheme)
-            InfoCard(colorScheme: colorScheme) {
-                VStack(alignment: .leading, spacing: 12) {
-                    FeatureRow(icon: "qrcode", text: "获取门禁二维码 - 自动刷新，极速进出", colorScheme: colorScheme)
-                    FeatureRow(icon: "bolt.fill", text: "水电费查询 - 实时余额，一键查看", colorScheme: colorScheme)
-                }
-            }
+            
+            // 炫彩应用名称
+            Text("慧湖通Lite")
+                .font(.system(size: 32, weight: .bold))
+                .foregroundStyle(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.blue, .purple]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
         }
     }
 }
 
-// 分离快速上手板块
-struct QuickStartSection: View {
+// 使用教程卡片
+struct TutorialCard: View {
     let colorScheme: ColorScheme
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionHeader(title: "快速上手", colorScheme: colorScheme)
-            InfoCard(colorScheme: colorScheme) {
-                VStack(alignment: .leading, spacing: 12) {
-                    UsageStep(number: "1", title: "获取OpenID", description: "通过微信小程序抓包获取个人OpenID", colorScheme: colorScheme)
-                    UsageStep(number: "2", title: "享受便利", description: "自动生成二维码，查询电费等", colorScheme: colorScheme)
-                }
+        Button(action: {
+            if let url = URL(string: "https://github.com/PairZhu/HuiHuTong/blob/main/README.md") {
+                UIApplication.shared.open(url)
             }
-        }
-    }
-}
-struct SectionHeader: View {
-    let title: String
-    let colorScheme: ColorScheme
-    var body: some View {
-        Text(title)
-            .font(.headline)
-            .fontWeight(.semibold)
-            .foregroundColor(colorScheme == .dark ? .white : .primary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-struct InfoCard<Content: View>: View {
-    let colorScheme: ColorScheme
-    let content: () -> Content
-    init(colorScheme: ColorScheme, @ViewBuilder content: @escaping () -> Content) {
-        self.colorScheme = colorScheme
-        self.content = content
-    }
-    var body: some View {
-        content()
-            .padding(16)
+        }) {
+            HStack(spacing: 16) {
+                // 问号图标
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.15))
+                        .frame(width: 50, height: 50)
+                    
+                    Image(systemName: "questionmark.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(.blue)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("如何使用？")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .primary)
+                    
+                    Text("查看详细使用教程")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.secondary)
+            }
+            .padding()
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(colorScheme == .dark ? Color(.systemGray6) : Color.white)
-                    .shadow(color: colorScheme == .dark ? .clear : .gray.opacity(0.1), radius: 2, x: 0, y: 1)
+                    .shadow(color: colorScheme == .dark ? .clear : .gray.opacity(0.1), radius: 4, x: 0, y: 2)
             )
-    }
-}
-
-struct FeatureRow: View {
-    let icon: String
-    let text: String
-    let colorScheme: ColorScheme
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .foregroundColor(.blue)
-                .frame(width: 24, height: 24)
-                .font(.system(size: 16, weight: .medium))
-            
-            Text(text)
-                .font(.system(size: 15))
-                .foregroundColor(colorScheme == .dark ? .white : .primary)
-                .multilineTextAlignment(.leading)
-            
-            Spacer()
         }
-        .padding(.vertical, 2)
     }
 }
 
-struct UsageStep: View {
-    let number: String
-    let title: String
-    let description: String
+// 鸣谢卡片
+struct AcknowledgmentCard: View {
     let colorScheme: ColorScheme
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(Color.blue)
-                .frame(width: 24, height: 24)
-                .overlay {
-                    Text(number)
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .fontWeight(.semibold)
-                    .foregroundColor(colorScheme == .dark ? .white : .primary)
-                
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundColor(colorScheme == .dark ? .gray : .secondary)
+        Button(action: {
+            if let url = URL(string: "https://github.com/PairZhu/HuiHuTong") {
+                UIApplication.shared.open(url)
             }
-            
-            Spacer()
-        }
-    }
-}
-
-struct TechRow: View {
-    let title: String
-    let value: String
-    let colorScheme: ColorScheme
-    
-    var body: some View {
-        HStack {
-            Text(title)
-                .foregroundColor(colorScheme == .dark ? .gray : .secondary)
-            
-            Spacer()
-            
-            Text(value)
-                .fontWeight(.medium)
-                .foregroundColor(colorScheme == .dark ? .white : .primary)
+        }) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.pink)
+                    
+                    Text("鸣谢")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .primary)
+                }
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("本项目参考了以下开源项目：")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    HStack {
+                        Image(systemName: "link.circle.fill")
+                            .foregroundColor(.blue)
+                            .font(.caption)
+                        
+                        Text("PairZhu/HuiHuTong")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.blue.opacity(0.1))
+                    )
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color(.systemGray6) : Color.white)
+                    .shadow(color: colorScheme == .dark ? .clear : .gray.opacity(0.1), radius: 4, x: 0, y: 2)
+            )
         }
     }
 }

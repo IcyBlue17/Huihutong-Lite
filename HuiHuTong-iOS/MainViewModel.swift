@@ -1,32 +1,6 @@
 import SwiftUI
 import SwiftData
 
-// 超时错误类型
-struct TimeoutError: Error {
-    let message = "请求超时"
-}
-
-// 超时函数
-func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
-    return try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask {
-            return try await operation()
-        }
-        
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            throw TimeoutError()
-        }
-        
-        guard let result = try await group.next() else {
-            throw TimeoutError()
-        }
-        
-        group.cancelAll()
-        return result
-    }
-}
-
 @available(iOS 17.0, *)
 @MainActor
 class MainViewModel: ObservableObject {
@@ -57,18 +31,10 @@ class MainViewModel: ObservableObject {
 
     private func loadSettings() {
         guard let context = modelContext else { return }
-    
-        let descriptor = FetchDescriptor<AppSettings>()
-        if let existingSettings = try? context.fetch(descriptor).first {
-            settings = existingSettings
-            scaleFactor = existingSettings.scaleFactor
-            refreshInterval = TimeInterval(existingSettings.qrRefreshInterval)
-        } else {
-            let newSettings = AppSettings()
-            context.insert(newSettings)
-            settings = newSettings
-            try? context.save()
-        }
+        
+        settings = context.getOrCreateAppSettings()
+        scaleFactor = settings?.scaleFactor ?? 1.0
+        refreshInterval = TimeInterval(settings?.qrRefreshInterval ?? 15)
     }
     
     func saveSettings() {

@@ -29,7 +29,6 @@ struct HuiHuTong_iOSApp: App {
     }()
     
     init() {
-        // 在应用启动时发送追踪数据
         tracker.sendTrackingData()
     }
 
